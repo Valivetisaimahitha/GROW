@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String            @id @default(uuid())
+  name          String
+  email         String            @unique
+  lastCheckedAt DateTime          @default(now())
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  watchlists    Watchlist[]
+  observations  UserObservation[]
+  changeEvents  ChangeEvent[]
+}
+
+model Watchlist {
+  id        String          @id @default(uuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  items     WatchlistItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model WatchlistItem {
+  id          String    @id @default(uuid())
+  watchlistId String
+  watchlist   Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  symbol      String
+  displayName String?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([watchlistId, symbol])
+  @@index([watchlistId])
+  @@index([symbol])
+}
+
+model SecurityMaster {
+  id                    String   @id @default(uuid())
+  symbol                String   @unique
+  companyName           String
+  exchange              String   @default("NSE")
+  sector                String?
+  currency              String   @default("INR")
+  typicalVolatility     Float?   // Optional float, null if unavailable
+  averageVolume         Float?   // Optional float, null if unavailable
+  historicalStatus      String   @default("HISTORICAL_DATA_SUFFICIENT") // HISTORICAL_DATA_SUFFICIENT, HISTORICAL_DATA_LIMITED, HISTORICAL_DATA_UNAVAILABLE
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([symbol])
+}
+
+model MarketSnapshot {
+  id                String   @id @default(uuid())
+  symbol            String
+  price             Float
+  previousClose     Float
+  openPrice         Float
+  highPrice         Float
+  lowPrice          Float
+  volume            Float
+  provider          String   @default("demo")
+  providerTimestamp DateTime
+  receivedAt        DateTime @default(now())
+  freshnessStatus   String   @default("FRESH") // FRESH, DELAYED, STALE, UNAVAILABLE
+  createdAt         DateTime @default(now())
+
+  observations UserObservation[]
+  changeEvents ChangeEvent[]
+
+  @@index([symbol, providerTimestamp])
+}
+
+model UserObservation {
+  id               String          @id @default(uuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol           String
+  marketSnapshotId String?
+  marketSnapshot   MarketSnapshot? @relation(fields: [marketSnapshotId], references: [id], onDelete: SetNull)
+  price            Float
+  volume           Float
+  marketTimestamp  DateTime
+  observedAt       DateTime        @default(now())
+
+  changeEvents ChangeEvent[]
+
+  @@index([userId, symbol, observedAt(sort: Desc)])
+}
+
+model ChangeEvent {
+  id                    String           @id @default(uuid())
+  userId                String
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol                String
+  previousObservationId String?
+  previousObservation   UserObservation? @relation(fields: [previousObservationId], references: [id], onDelete: SetNull)
+  currentSnapshotId     String?
+  currentSnapshot       MarketSnapshot?  @relation(fields: [currentSnapshotId], references: [id], onDelete: SetNull)
+  idempotencyKey        String?          @unique // (userId:symbol:prevObsId:snapshotId) to prevent duplicate event creation
+  personalChangePct     Float
+  todayChangePct        Float
+  unusualnessFactor     Float?           // null if historical data unavailable
+  volumeAnomalyRatio    Float?           // null if historical data unavailable
+  historicalStatus      String           @default("HISTORICAL_DATA_SUFFICIENT")
+  attentionScore        Float
+  severity              String           // NORMAL, WORTH_A_LOOK, SIGNIFICANT, HIGH_ATTENTION
+  confidence            String           // HIGH, MEDIUM, LOW (derived from freshness, NOT additive in score)
+  reasonsJson           String           // Serialized JSON array of reason strings/objects
+  createdAt             DateTime         @default(now())
+
+  @@index([userId, symbol, createdAt(sort: Desc)])
+  @@index([userId, severity, createdAt(sort: Desc)])
+}
+
+model DemoScenarioState {
+  id                  String   @id @default("global")
+  currentScenario     String   @default("NORMAL_NOISE")
+  advancedTimeMinutes Int      @default(0)
+  updatedAt           DateTime @updatedAt
+}
